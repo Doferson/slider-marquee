@@ -1,3 +1,12 @@
+/* Inter 500, латиница — весь видимый текст латинский */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/inter-500-latin.woff2") format("woff2");
+}
+
 :root {
   --bg: #fff;
   --fg: #000;

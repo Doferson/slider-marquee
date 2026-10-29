@@ -1,4 +1,6 @@
 (() => {
+  // Полноразмерные фото (900px) — для открытого слайда;
+  // карточкам хватает версии 600px, браузер выбирает по srcset
   const SLIDES = [
     'assets/slide-01.avif',
     'assets/slide-02.avif',
@@ -6,6 +8,9 @@
     'assets/slide-04.avif',
     'assets/slide-05.avif',
   ];
+  const cardSrc = (src) => src.replace('.avif', '-600.avif');
+  // Картинка карточки — 140% от --slide-w: clamp(220px, 20.8333vw, 400px)
+  const CARD_SIZES = '(max-width: 1056px) 308px, (max-width: 1920px) 29.17vw, 560px';
 
   const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const AUTO_SPEED = REDUCED_MOTION ? 0 : 0.15; // доля ширины карточки в секунду
@@ -83,7 +88,9 @@
       <p class="slide__num"><span>${pad(index + 1)}</span></p>
       <div class="slide__media">
         <div class="slide__parallax">
-          <img class="slide__img" src="${src}" alt="" draggable="false">
+          <img class="slide__img" src="${cardSrc(src)}"
+            srcset="${cardSrc(src)} 600w, ${src} 900w" sizes="${CARD_SIZES}"
+            ${!isClone && index === 0 ? 'fetchpriority="high"' : ''} alt="" draggable="false">
         </div>
       </div>`;
     if (isClone) {
@@ -433,7 +440,7 @@
     const to = targetRect();
     const imgFrom = slideImgFrame(item);
 
-    viewerImg.src = item.src;
+    setViewerSrc(viewerImg, item);
     viewerNum.textContent = item.label;
     viewer.setAttribute('aria-hidden', 'false');
 
@@ -460,6 +467,20 @@
         // На тач фокус не переносим — иначе браузер рисует кольцо после тапа
         if (!isTouch()) cursorBtn.focus({ preventScroll: true });
       });
+  }
+
+  // Во вьюер сразу ставим уже загруженную картинку карточки, а полноразмерную
+  // подменяем, как только она декодируется, — открытие и листание не ждут сеть
+  function setViewerSrc(img, item) {
+    const card = item.img.currentSrc;
+    const full = new URL(item.src, location.href).href;
+    img.src = card || full;
+    if (!card || card === full) return;
+    const loader = new Image();
+    loader.src = full;
+    loader.decode().then(() => {
+      if (img.src === card) img.src = full;
+    }).catch(() => {});
   }
 
   // ---------- Листание в открытом слайде ----------
@@ -573,7 +594,7 @@
     // иначе тяжёлое декодирование задерживает старт и они расходятся
     const newFrame = viewerImg.parentElement.cloneNode(true);
     const newImg = newFrame.querySelector('.viewer__img');
-    newImg.src = next.src;
+    setViewerSrc(newImg, next);
     await newImg.decode().catch(() => {});
     // Пока декодировали, успели кликнуть ещё раз — покажем более свежее фото
     if (token !== switchToken || !view.open) return;
@@ -950,17 +971,12 @@
 
   // ---------- Init ----------
 
-  function preload(src) {
-    const img = new Image();
-    img.src = src;
-    return img.decode().catch(() => {});
-  }
-
   build();
   layout();
   requestAnimationFrame(tick);
 
-  Promise.all(SLIDES.map(preload)).then(() => {
+  // Раскрываем ленту, когда готовы картинки карточек
+  Promise.all(items.map((it) => it.img.decode().catch(() => {}))).then(() => {
     // Стаггер по порядку на экране, слева направо
     const visible = items
       .filter((it) => it.x < vw)
@@ -972,5 +988,8 @@
     document.body.classList.add('is-ready');
     revealed = true;
     setTimeout(() => (autoplay = true), REDUCED_MOTION ? 0 : 600);
+
+    // Полноразмерные фото для открытого слайда подтягиваем в фоне, после загрузки страницы
+    setTimeout(() => SLIDES.forEach((src) => { new Image().src = src; }), 1500);
   });
 })();
