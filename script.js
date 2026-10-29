@@ -1,10 +1,10 @@
 (() => {
   const SLIDES = [
-    'assets/slide-01.png',
-    'assets/slide-02.png',
-    'assets/slide-03.png',
-    'assets/slide-04.png',
-    'assets/slide-05.png',
+    'assets/slide-01.avif',
+    'assets/slide-02.avif',
+    'assets/slide-03.avif',
+    'assets/slide-04.avif',
+    'assets/slide-05.avif',
   ];
 
   const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
