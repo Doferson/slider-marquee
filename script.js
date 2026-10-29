@@ -25,6 +25,9 @@
   const LABEL_DURATION = 650;
   const LABEL_EASING = 'cubic-bezier(0.45, 0, 0.2, 1)';
   const LABEL_IN_DELAY = 80; // новая подпись трогается чуть позже ухода старой
+  const SWIPE_DISTANCE = 60; // px: свайп влево/вправо листает
+  const CLOSE_DISTANCE = 120; // px: свайп вниз сворачивает
+  const SWIPE_VELOCITY = 0.4; // px/ms: быстрый взмах срабатывает и на короткой дистанции
   const CURSOR_LABELS = {
     open: 'Открыть',
     close: 'Закрыть',
@@ -312,6 +315,7 @@
   // На телефонах (без hover) круга нет никогда.
   const noHover = window.matchMedia('(hover: none)');
   const setTouch = (on) => document.body.classList.toggle('is-touch', on || noHover.matches);
+  const isTouch = () => document.body.classList.contains('is-touch');
   setTouch(false);
   window.addEventListener('pointerdown', (e) => setTouch(e.pointerType !== 'mouse'), true);
 
@@ -354,17 +358,22 @@
   }
 
   // Геометрия картинки внутри карточки: шире на 20% и сдвинута параллаксом
-  function slideImgFrame(item) {
-    const shift = new DOMMatrixReadOnly(getComputedStyle(item.parallax).transform).m41;
-    const scale = parseFloat(getComputedStyle(item.img).scale) || 1;
+  function slideImgState(item) {
     return {
-      left: '-20%',
-      width: '140%',
-      transform: `translateX(${shift}px) scale(${scale})`,
+      shift: new DOMMatrixReadOnly(getComputedStyle(item.parallax).transform).m41,
+      scale: parseFloat(getComputedStyle(item.img).scale) || 1,
     };
   }
 
-  const viewerImgFrame = { left: '0%', width: '100%', transform: 'translateX(0px) scale(1)' };
+  // p: 0 — картинка во вьюере, 1 — картинка в карточке
+  const imgFrameAt = ({ shift, scale }, p) => ({
+    left: `${-20 * p}%`,
+    width: `${100 + 40 * p}%`,
+    transform: `translateX(${shift * p}px) scale(${1 + (scale - 1) * p})`,
+  });
+
+  const slideImgFrame = (item) => imgFrameAt(slideImgState(item), 1);
+  const viewerImgFrame = imgFrameAt({ shift: 0, scale: 1 }, 0);
 
   // Маски карточек: hide — закрываются сверху вниз, иначе раскрываются снизу вверх,
   // зеркально анимации появления. Волна идёт от открытой карточки: при сворачивании
@@ -448,7 +457,8 @@
       .animate([toFrame(from), toFrame(to)], { duration: OPEN_DURATION, easing: OPEN_EASING })
       .finished.then(() => {
         view.busy = false;
-        cursorBtn.focus({ preventScroll: true });
+        // На тач фокус не переносим — иначе браузер рисует кольцо после тапа
+        if (!isTouch()) cursorBtn.focus({ preventScroll: true });
       });
   }
 
@@ -621,29 +631,36 @@
     viewerNum.textContent = view.item.label;
   }
 
-  function close() {
+  // fling — скорость пальца (px/ms), если слайд смахнули вниз
+  function close(fling) {
     if (!view.open || view.busy) return;
     const { item } = view;
     view.busy = true;
     settleSwitch();
 
+    // Стартуем ровно оттуда, куда фото утянули свайпом
     const from = viewerMedia.getBoundingClientRect();
+    clearMediaShift();
     const to = item.media.getBoundingClientRect();
-    const imgTo = slideImgFrame(item);
+    const imgState = slideImgState(item);
+    const flight = fling
+      ? flingFrames(from, to, fling, imgState)
+      : {
+          media: [toFrame(from), toFrame(to)],
+          img: [viewerImgFrame, imgFrameAt(imgState, 1)],
+          timing: { duration: OPEN_DURATION, easing: OPEN_EASING },
+        };
 
     viewer.classList.add('is-flying');
     document.body.classList.remove('is-open');
     applyRect(to);
     animateMasks(false, item);
 
-    viewerImg.animate([viewerImgFrame, imgTo], {
-      duration: OPEN_DURATION,
-      easing: OPEN_EASING,
-      fill: 'forwards',
-    });
+    viewerImg.animate(flight.img, { ...flight.timing, fill: 'forwards' });
     viewerMedia
-      .animate([toFrame(from), toFrame(to)], { duration: OPEN_DURATION, easing: OPEN_EASING })
+      .animate(flight.media, flight.timing)
       .finished.then(() => {
+        viewerNum.style.opacity = '';
         item.el.classList.remove('is-active');
         viewer.classList.remove('is-flying');
         viewer.setAttribute('aria-hidden', 'true');
@@ -651,7 +668,7 @@
         view.open = false;
         view.busy = false;
         view.item = null;
-        if (!item.el.hasAttribute('aria-hidden')) item.el.focus({ preventScroll: true });
+        if (!isTouch() && !item.el.hasAttribute('aria-hidden')) item.el.focus({ preventScroll: true });
       });
   }
 
@@ -703,7 +720,190 @@
     pressCursor(false);
   });
 
+  // ---------- Свайпы в открытом слайде (тач) ----------
+  // Ось выбираем по первому заметному движению пальца:
+  // вниз — фото тянется за пальцем и сворачивается, влево/вправо — листание
+  // (рамка фото при этом стоит на месте, двигается только картинка внутри при смене).
+  const swipe = { id: null, axis: null, startX: 0, startY: 0, baseX: 0, baseY: 0, x: 0, y: 0, track: [] };
+  let swipeSpring = null;
+  let suppressClickUntil = 0;
+
+  // Чем ниже утянули фото, тем оно меньше — как в нативной галерее
+  const dragScale = (y) => 1 - clamp(y / window.innerHeight, 0, 1) * 0.4;
+  const dragFade = (y) => 1 - clamp(y / 240, 0, 1);
+  // Вверх тянется с нарастающим сопротивлением
+  const rubber = (y) => (y >= 0 ? y : -60 * (1 - Math.exp(y / 120)));
+
+  function setMediaShift(x, y) {
+    viewerMedia.style.translate = `${x}px ${y}px`;
+    viewerMedia.style.scale = String(dragScale(y));
+    viewerNum.style.opacity = String(dragFade(y));
+  }
+
+  function clearMediaShift() {
+    swipeSpring?.cancel();
+    swipeSpring = null;
+    viewerMedia.style.translate = '';
+    viewerMedia.style.scale = '';
+  }
+
+  // Скорость пальца по последним ~100 мс движения, px/ms
+  function releaseVelocity(t) {
+    const pts = swipe.track;
+    const last = pts[pts.length - 1];
+    if (!last || t - last.t > 80) return { vx: 0, vy: 0 }; // палец остановился — взмаха нет
+    const first = pts.find((p) => last.t - p.t <= 100) || last;
+    const dt = last.t - first.t;
+    return dt > 0 ? { vx: (last.x - first.x) / dt, vy: (last.y - first.y) / dt } : { vx: 0, vy: 0 };
+  }
+
+  // Пружина x'' = -k·x - c·x' (слегка недодемпфирована): фото возвращается
+  // с той скоростью, с которой его отпустили, и чуть перелетает точку покоя
+  function springBack(x0, y0, vx, vy) {
+    const k = 260;
+    const c = 26;
+    const dt = 1 / 60;
+    let x = x0;
+    let y = y0;
+    let sx = vx * 1000;
+    let sy = vy * 1000;
+    const frames = [];
+    for (let i = 0; i < 120; i++) {
+      frames.push({ translate: `${x}px ${y}px`, scale: String(dragScale(y)) });
+      if (Math.hypot(x, y) < 0.5 && Math.hypot(sx, sy) < 10) break;
+      sx += (-k * x - c * sx) * dt;
+      sy += (-k * y - c * sy) * dt;
+      x += sx * dt;
+      y += sy * dt;
+    }
+    frames.push({ translate: '0px 0px', scale: '1' });
+
+    clearMediaShift();
+    const duration = (frames.length - 1) * 1000 / 60;
+    swipeSpring = viewerMedia.animate(frames, { duration });
+    viewerNum.animate([{ opacity: dragFade(y0) }, { opacity: 1 }], {
+      duration: Math.min(duration, 400),
+      easing: 'ease-out',
+    });
+    viewerNum.style.opacity = '';
+  }
+
+  // Сворачивание после взмаха: центр фото летит в карточку по пружине, стартуя
+  // с вектором скорости пальца, — путь сам изгибается, и на отпускании нет рывка.
+  // Размер догоняет отдельной пружиной с нуля. Демпфирование критическое,
+  // чтобы фото не проскакивало мимо карточки.
+  function flingFrames(from, to, { vx, vy }, imgState) {
+    const k = 200;
+    const c = 2 * Math.sqrt(k);
+    const dt = 1 / 60;
+    const cx = to.left + to.width / 2;
+    const cy = to.top + to.height / 2;
+    let x = from.left + from.width / 2 - cx;
+    let y = from.top + from.height / 2 - cy;
+    let sx = vx * 1000;
+    let sy = vy * 1000;
+    let p = 0;
+    let sp = 0;
+    const media = [];
+    const img = [];
+    for (let i = 0; i < 90; i++) {
+      const q = clamp(p, 0, 1);
+      const w = from.width + (to.width - from.width) * q;
+      const h = from.height + (to.height - from.height) * q;
+      media.push(toFrame({ left: cx + x - w / 2, top: cy + y - h / 2, width: w, height: h }));
+      img.push(imgFrameAt(imgState, q));
+      if (Math.hypot(x, y) < 0.5 && Math.hypot(sx, sy) < 10 && 1 - p < 0.002) break;
+      sx += (-k * x - c * sx) * dt;
+      sy += (-k * y - c * sy) * dt;
+      x += sx * dt;
+      y += sy * dt;
+      sp += (-k * (p - 1) - c * sp) * dt;
+      p += sp * dt;
+    }
+    media.push(toFrame(to));
+    img.push(imgFrameAt(imgState, 1));
+    return { media, img, timing: { duration: ((media.length - 1) * 1000) / 60 } };
+  }
+
+  viewer.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' || !view.open || view.busy || swipe.id !== null) return;
+    swipe.id = e.pointerId;
+    swipe.axis = null;
+    swipe.startX = e.clientX;
+    swipe.startY = e.clientY;
+    swipe.x = swipe.y = 0;
+    swipe.track = [{ t: e.timeStamp, x: 0, y: 0 }];
+
+    // Подхватили фото на лету, пока оно пружинит, — продолжаем с текущего места
+    swipe.baseX = swipe.baseY = 0;
+    if (swipeSpring) {
+      const [tx = 0, ty = 0] = getComputedStyle(viewerMedia).translate.split(' ').map(parseFloat);
+      swipe.baseX = tx || 0;
+      swipe.baseY = ty || 0;
+      clearMediaShift();
+      if (swipe.baseX || swipe.baseY) setMediaShift(swipe.baseX, swipe.baseY);
+    }
+  });
+
+  viewer.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== swipe.id) return;
+    const x = e.clientX - swipe.startX;
+    const y = e.clientY - swipe.startY;
+
+    if (!swipe.axis) {
+      if (Math.hypot(x, y) <= DRAG_THRESHOLD) return;
+      swipe.axis = Math.abs(x) > Math.abs(y) ? 'x' : 'y';
+      viewer.setPointerCapture(e.pointerId);
+      if (swipe.axis === 'y') {
+        // Масштаб — от точки под пальцем: она так и остаётся под пальцем
+        const r = viewerMedia.getBoundingClientRect();
+        const s = dragScale(swipe.baseY);
+        viewerMedia.style.transformOrigin =
+          `${(swipe.startX - r.left) / s}px ${(swipe.startY - r.top) / s}px`;
+      }
+    }
+
+    swipe.x = x;
+    swipe.y = y;
+    swipe.track.push({ t: e.timeStamp, x, y });
+    if (swipe.track.length > 12) swipe.track.shift();
+
+    if (swipe.axis === 'y') setMediaShift(swipe.baseX + x, rubber(swipe.baseY + y));
+  });
+
+  function endSwipe(e) {
+    if (e.pointerId !== swipe.id) return;
+    swipe.id = null;
+    const { axis, x } = swipe;
+    const { vx, vy } = releaseVelocity(e.timeStamp);
+    const released = e.type === 'pointerup';
+
+    if (!axis) {
+      // Тап — его обработает click; фото, подхваченное на лету, отпускаем пружиной
+      if (swipe.baseX || swipe.baseY) springBack(swipe.baseX, swipe.baseY, 0, 0);
+      return;
+    }
+    suppressClickUntil = performance.now() + 400;
+
+    if (axis === 'x') {
+      const flick = Math.abs(vx) > SWIPE_VELOCITY && Math.sign(vx) === Math.sign(x);
+      if (released && (Math.abs(x) > SWIPE_DISTANCE || flick)) show(x < 0 ? 1 : -1);
+      return;
+    }
+
+    const y = rubber(swipe.baseY + swipe.y);
+    if (released && y > 0 && (y > CLOSE_DISTANCE || vy > SWIPE_VELOCITY) && vy > -0.1) {
+      close({ vx, vy });
+    } else {
+      springBack(swipe.baseX + swipe.x, y, vx, vy);
+    }
+  }
+
+  viewer.addEventListener('pointerup', endSwipe);
+  viewer.addEventListener('pointercancel', endSwipe);
+
   viewer.addEventListener('click', (e) => {
+    if (performance.now() < suppressClickUntil) return;
     const zone = zoneAt(e.clientX, e.clientY);
     if (zone === 'close') close();
     else show(zone === 'next' ? 1 : -1);

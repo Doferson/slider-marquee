@@ -209,6 +209,7 @@ img {
 
 .is-open .viewer {
   pointer-events: auto;
+  touch-action: none; /* свайпы обрабатываем сами, без pull-to-refresh */
 }
 
 @media (pointer: fine) {
@@ -299,6 +300,21 @@ img {
 /* Тач: круга нет — карточки и фото управляются тапами */
 .is-touch .cursor {
   display: none;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .cursor {
+    display: none;
+  }
+}
+
+/* И кольца фокуса на тач тоже нет */
+.is-touch :focus-visible {
+  outline: none;
+}
+
+.is-touch .slide:focus-visible::after {
+  outline-color: transparent;
 }
 
 /* Над карточкой системный курсор прячем — его заменяет круг */
