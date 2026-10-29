@@ -308,10 +308,18 @@
 
   // ---------- Hover tracking ----------
 
+  // Тач-ввод прячет круг-курсор; движение мышью возвращает его (ноутбук с тачскрином).
+  // На телефонах (без hover) круга нет никогда.
+  const noHover = window.matchMedia('(hover: none)');
+  const setTouch = (on) => document.body.classList.toggle('is-touch', on || noHover.matches);
+  setTouch(false);
+  window.addEventListener('pointerdown', (e) => setTouch(e.pointerType !== 'mouse'), true);
+
   window.addEventListener('pointermove', (e) => {
     pointer.x = e.clientX;
     pointer.y = e.clientY;
     pointer.mouse = e.pointerType === 'mouse';
+    if (pointer.mouse) setTouch(false);
     cursor.tx = e.clientX;
     cursor.ty = e.clientY;
   });
