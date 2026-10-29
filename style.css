@@ -1,0 +1,344 @@
+:root {
+  --bg: #fff;
+  --fg: #000;
+  --muted: #f5f5f5;
+
+  /* Макет 1920px: карточка 400px, gap/отступы 20px */
+  --pad: 20px;
+  --gap: 20px;
+  --slide-w: clamp(220px, 20.8333vw, 400px);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.76, 0, 0.24, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Inter", system-ui, sans-serif;
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Единое кольцо фокуса с клавиатуры для всех элементов */
+:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 4px;
+}
+
+img {
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* ---------- Slider ---------- */
+
+.slider {
+  position: fixed;
+  inset: 0;
+  cursor: grab;
+  touch-action: pan-y;
+  user-select: none;
+}
+
+.slider.is-dragging {
+  cursor: grabbing;
+}
+
+.slider__track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--pad);
+}
+
+.slide {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: var(--slide-w);
+  outline: none;
+  scale: 1;
+  transition: scale 0.9s var(--ease-out);
+  will-change: translate, scale;
+}
+
+/* Зажатие ленты: карточки слегка уменьшаются */
+.slider.is-pressed .slide {
+  scale: 0.94;
+  transition-duration: 0.5s;
+}
+
+/* clip-path на .slide__media срезает её собственный outline,
+   поэтому кольцо рисуем отдельным слоем поверх области фото */
+.slide:focus-visible {
+  outline: none;
+}
+
+.slide::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  outline: 2px solid transparent;
+  outline-offset: 4px;
+  pointer-events: none;
+}
+
+.slide:focus-visible::after {
+  outline-color: var(--fg);
+}
+
+.slide__num {
+  margin: 0;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.slide__num span {
+  display: block;
+  transform: translateY(110%);
+}
+
+.slide__media {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  clip-path: inset(100% 0 0 0);
+}
+
+.slide__parallax {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+/* Изображение шире рамки — запас под параллакс */
+.slide__img {
+  position: absolute;
+  top: 0;
+  left: -20%;
+  width: 140%;
+  height: 100%;
+  object-fit: cover;
+  scale: 1;
+  transition: scale 1.2s var(--ease-out);
+}
+
+.slide.is-hover .slide__img {
+  scale: 1.08;
+}
+
+/* ---------- Появление: маска раскрывается снизу вверх ---------- */
+
+.is-ready .slide__media {
+  animation: mask-reveal 1s var(--ease-in-out) var(--delay, 0s) both;
+}
+
+.is-ready .slide__img {
+  animation: img-reveal 1.3s var(--ease-out) var(--delay, 0s) both;
+}
+
+.is-ready .slide__num span {
+  animation: num-reveal 0.8s var(--ease-out) calc(var(--delay, 0s) + 0.25s) both;
+}
+
+.slide.is-static .slide__media,
+.slide.is-static .slide__img,
+.slide.is-static .slide__num span {
+  animation: none;
+  clip-path: none;
+  transform: none;
+}
+
+@keyframes mask-reveal {
+  from { clip-path: inset(100% 0 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes img-reveal {
+  from { transform: translateY(15%) scale(1.3); }
+  to { transform: none; }
+}
+
+@keyframes num-reveal {
+  from { transform: translateY(110%); }
+  to { transform: none; }
+}
+
+/* ---------- Открытый слайд ---------- */
+
+.slide.is-active .slide__media {
+  visibility: hidden;
+}
+
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.is-open .viewer,
+.viewer.is-flying {
+  visibility: visible;
+}
+
+.is-open .viewer {
+  pointer-events: auto;
+}
+
+@media (pointer: fine) {
+  .is-open .viewer {
+    cursor: none;
+  }
+}
+
+.viewer__num {
+  position: absolute;
+  top: 24px;
+  left: var(--pad);
+  margin: 0;
+  overflow: hidden;
+  font-size: clamp(40px, 4.1667vw, 80px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.viewer__num span {
+  display: block;
+  transform: translateY(110%);
+  transition: transform 0.5s var(--ease-in-out);
+}
+
+.is-open .viewer__num span {
+  transform: none;
+  transition: transform 0.8s var(--ease-out) 0.3s;
+}
+
+.viewer__media {
+  position: fixed;
+  overflow: hidden;
+}
+
+/* Кадр листания: маска живёт на кадре и не двигается, фото двигается внутри.
+   Так кадр никогда не меняет ширину и не съезжает при быстрых кликах. */
+.viewer__frame {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.viewer__img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Круг-курсор: OPEN над карточками ленты; в открытом слайде CLOSE на фоне,
+   PREV / NEXT над левой и правой половиной фото. Клики проходят сквозь него. */
+.cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  width: 100px;
+  height: 100px;
+  margin: -50px 0 0 -50px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--muted);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  pointer-events: none;
+  scale: 0;
+  transition: scale 0.35s var(--ease-in-out);
+  will-change: translate, scale;
+}
+
+.is-open .cursor {
+  scale: 1;
+  transition: scale 0.5s var(--ease-out) 0.35s;
+}
+
+.cursor.is-visible {
+  scale: 1;
+  transition: scale 0.5s var(--ease-out);
+}
+
+/* Над карточкой системный курсор прячем — его заменяет круг */
+.slider.is-cursor {
+  cursor: none;
+}
+
+/* Волна от круга при нажатии — над фоном круга, под подписью */
+.cursor::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Подписи меняются через маску: строка-окно, текст въезжает снизу и уходит вверх */
+.cursor [data-label] {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  translate: 0 -50%;
+}
+
+.cursor [data-label] span {
+  display: block;
+  transform: translateY(110%);
+}
+
+.cursor[data-mode="open"] [data-label="open"] span,
+.cursor[data-mode="close"] [data-label="close"] span,
+.cursor[data-mode="prev"] [data-label="prev"] span,
+.cursor[data-mode="next"] [data-label="next"] span {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-ready .slide__media,
+  .is-ready .slide__img,
+  .is-ready .slide__num span {
+    animation-duration: 0.01s;
+    animation-delay: 0s;
+  }
+}

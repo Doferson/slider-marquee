@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Slider Marquee</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="slider" data-slider aria-label="Галерея">
+    <div class="slider__track" data-track></div>
+  </main>
+
+  <div class="viewer" data-viewer aria-hidden="true">
+    <p class="viewer__num"><span data-viewer-num></span></p>
+    <div class="viewer__media" data-viewer-media>
+      <div class="viewer__frame">
+        <img class="viewer__img" data-viewer-img alt="" draggable="false">
+      </div>
+    </div>
+  </div>
+
+  <!-- Круг-курсор: OPEN над карточками, CLOSE / PREV / NEXT в открытом слайде -->
+  <button class="cursor" type="button" tabindex="-1" data-cursor data-mode="open" aria-label="Открыть">
+    <span data-label="open"><span>Open</span></span>
+    <span data-label="close"><span>Close</span></span>
+    <span data-label="prev"><span>Prev</span></span>
+    <span data-label="next"><span>Next</span></span>
+  </button>
+
+  <script src="script.js"></script>
+</body>
+</html>
