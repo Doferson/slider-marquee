@@ -483,6 +483,14 @@
     }).catch(() => {});
   }
 
+  // Safari может не завершить decode() у картинки, которой ещё нет в документе, —
+  // ждём не дольше DECODE_TIMEOUT, дальше браузер дорисует фото сам
+  const DECODE_TIMEOUT = 300;
+  const decoded = (img) => Promise.race([
+    img.decode().catch(() => {}),
+    new Promise((resolve) => setTimeout(resolve, DECODE_TIMEOUT)),
+  ]);
+
   // ---------- Листание в открытом слайде ----------
 
   function zoneAt(x, y) {
@@ -594,8 +602,9 @@
     // иначе тяжёлое декодирование задерживает старт и они расходятся
     const newFrame = viewerImg.parentElement.cloneNode(true);
     const newImg = newFrame.querySelector('.viewer__img');
+    newImg.loading = 'eager'; // lazy-картинка вне документа в Safari не грузится вовсе
     setViewerSrc(newImg, next);
-    await newImg.decode().catch(() => {});
+    await decoded(newImg);
     // Пока декодировали, успели кликнуть ещё раз — покажем более свежее фото
     if (token !== switchToken || !view.open) return;
 
@@ -975,8 +984,14 @@
   layout();
   requestAnimationFrame(tick);
 
-  // Раскрываем ленту, когда готовы картинки карточек
-  Promise.all(items.map((it) => it.img.decode().catch(() => {}))).then(() => {
+  // Раскрываем ленту, как только готовы фото карточек на экране (на телефоне это 1–2),
+  // но не ждём дольше REVEAL_TIMEOUT: на медленной сети фото проявятся по ходу
+  const REVEAL_TIMEOUT = 1000;
+  const onScreen = items.filter((it) => it.x < vw && it.x + slideW > 0);
+  Promise.race([
+    Promise.all(onScreen.map((it) => it.img.decode().catch(() => {}))),
+    new Promise((resolve) => setTimeout(resolve, REVEAL_TIMEOUT)),
+  ]).then(() => {
     // Стаггер по порядку на экране, слева направо
     const visible = items
       .filter((it) => it.x < vw)

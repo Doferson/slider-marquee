@@ -1,0 +1,7 @@
+<!-- Первое фото ленты (LCP): браузер узнаёт о нём из HTML, до запуска скрипта.
+     srcset и sizes — те же, что Webflow ставит самой картинке, чтобы файл не качался дважды.
+     Если в Designer заменишь фото первой карточки — обнови ссылки здесь. -->
+<link rel="preload" as="image" fetchpriority="high"
+  href="https://cdn.prod.website-files.com/6ae5e10360a0657af0b382f6/6ae5e25ab58f7c70a4515f23_slide-01.avif"
+  imagesrcset="https://cdn.prod.website-files.com/6ae5e10360a0657af0b382f6/6ae5e25ab58f7c70a4515f23_slide-01-p-500.avif 500w, https://cdn.prod.website-files.com/6ae5e10360a0657af0b382f6/6ae5e25ab58f7c70a4515f23_slide-01-p-800.avif 800w, https://cdn.prod.website-files.com/6ae5e10360a0657af0b382f6/6ae5e25ab58f7c70a4515f23_slide-01.avif 900w"
+  imagesizes="(max-width: 900px) 100vw, 900px">
